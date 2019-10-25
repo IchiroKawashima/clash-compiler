@@ -73,6 +73,18 @@ runClashTest = defaultMain $ clashTestRoot
         , topEntity=TopEntity "test_i2c"
         , hdlSim=False
         }
+      , runTest "I2Ctest" def {
+          entities=Entities [ ".." </> "I2C" </> "i2c"
+                            , ".." </> "I2C" </> "bitmaster"
+                            , ".." </> "I2C" </> "bytemaster"
+                            , "configi2c"
+                            , "slave"
+                            , "system"
+                            ]
+        , topEntity=TopEntity "system"
+        , hdlTargets=[VerilogX False]
+        , hdlSim=True
+        }
       ]
     ]
   , clashTestGroup "tests"
@@ -314,6 +326,9 @@ runClashTest = defaultMain $ clashTestRoot
           ]
 
         , runFailingTest ("tests" </> "shouldfail" </> "Signal") allTargets [] "MAC" (Just "Couldn't instantiate blackbox for Clash.Signal.Internal.register#")
+        ]
+      , clashTestGroup "SimIO"
+        [ runTest "Test00" def {hdlTargets=[VerilogX False], topEntity=TopEntity "topEntity"}
         ]
       , clashTestGroup "SynthesisAttributes"
         [ outputTest ("tests" </> "shouldwork" </> "SynthesisAttributes") allTargets [] [] "Simple"  "main"

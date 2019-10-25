@@ -513,6 +513,7 @@ representableType builtInTranslation reprs stringRepresentable m =
 typeSize :: HWType
          -> Int
 typeSize (Void {}) = 0
+typeSize FileType = 32
 typeSize String = 0
 typeSize Integer = 0
 typeSize (KnownDomain {}) = 0

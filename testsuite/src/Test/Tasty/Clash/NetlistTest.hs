@@ -71,7 +71,7 @@ mkClashOpts idirs = defClashOpts
 
 type family TargetToState (target :: BuildTarget) where
   TargetToState 'VHDL          = VHDLState
-  TargetToState 'Verilog       = VerilogState
+  TargetToState ('VerilogX _)  = VerilogState
   TargetToState 'SystemVerilog = SystemVerilogState
 
 mkBackend
