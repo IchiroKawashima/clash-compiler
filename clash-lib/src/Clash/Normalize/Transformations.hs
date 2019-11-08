@@ -58,6 +58,7 @@ module Clash.Normalize.Transformations
   , etaExpandSyn
   , appPropFast
   , separateArguments
+  , xOptimize
   )
 where
 
@@ -80,7 +81,7 @@ import qualified Data.Monoid                 as Monoid
 import qualified Data.Primitive.ByteArray    as BA
 import qualified Data.Text                   as Text
 import qualified Data.Vector.Primitive       as PV
-import           Debug.Trace                 (trace)
+import           Debug.Trace
 import           GHC.Integer.GMP.Internals   (Integer (..), BigNat (..))
 
 import           BasicTypes                  (InlineSpec (..))
@@ -98,7 +99,7 @@ import           Clash.Core.Subst
   (substTm, mkSubst, extendIdSubst, extendIdSubstList, extendTvSubst,
    extendTvSubstList, freshenTm, substTyInVar, deShadowTerm)
 import           Clash.Core.Term
-  (LetBinding, Pat (..), Term (..), CoreContext (..), PrimInfo (..), TickInfo (..),
+  (LetBinding, Pat (..), Term (..), CoreContext (..), PrimInfo (..), TickInfo(..), WorkInfo(WorkConstant), Alt,
    isLambdaBodyCtx, isTickCtx, collectArgs, collectArgsTicks, collectTicks,
    partitionTicks)
 import           Clash.Core.Type             (Type, TypeView (..), applyFunTy,
@@ -2391,3 +2392,78 @@ separateArguments (TransformContext is0 _) e@(collectArgsTicks -> (Var g, args, 
         return [(ty,arg)]
 
 separateArguments _ e = return e
+
+xOptimize :: HasCallStack => NormRewrite
+xOptimize (TransformContext is0 _) e@(Case subj ty alts) =
+  case List.partition (isUndefined . snd) alts of
+    ([], _)    -> return e
+    (_, [])    -> changed (Prim "Clash.XException.errorX" (PrimInfo ty WorkConstant))
+    (_, [alt]) -> xOptimizeSingle is0 subj alt
+    (_, defs)  -> xOptimizeMany is0 subj ty defs
+
+xOptimize _ e = return e
+
+xOptimizeSingle :: InScopeSet -> Term -> Alt -> RewriteMonad extra Term
+xOptimizeSingle is subj (pat, expr) = do
+  tcm    <- Lens.view tcCache
+  subjId <- mkInternalVar is "subj" (termType tcm subj)
+
+  case pat of
+    DataPat dc tvs vars -> do
+      let fieldTys = fmap varType vars
+      lets <- Monad.zipWithM (mkSelection is subjId dc tvs fieldTys) vars [0..]
+
+      changed (Letrec ((subjId, subj) : lets) expr)
+
+    _ -> changed (Letrec [(subjId, subj)] expr)
+
+xOptimizeMany :: InScopeSet -> Term -> Type -> [Alt] -> RewriteMonad extra Term
+xOptimizeMany is subj ty defs
+  | isAnyDefault defs   = changed (Case subj ty defs)
+  | otherwise           = do
+      newAlt <- xOptimizeSingle is subj (head defs)
+      changed (Case subj ty $ tail defs <> [(DefaultPat, newAlt)])
+ where
+  isAnyDefault :: [Alt] -> Bool
+  isAnyDefault = any ((== DefaultPat) . fst)
+
+mkSelection :: MonadUnique m
+            => InScopeSet
+            -> Id   -- ^ subject id
+            -> DataCon
+            -> [TyVar]
+            -> [Type] -- ^ concrete types of fields
+            -> Id -> Int
+            -> m LetBinding
+mkSelection is0 subj dc tvs fieldTys nm index = do
+  fields <- mapM (\ty -> mkInternalVar is0 "field" ty) fieldTys
+  let alt = (DataPat dc tvs fields, Var $ fields !! index)
+  return (nm, Case (Var subj) (fieldTys !! index) [alt])
+
+isUndefined :: Term -> Bool
+isUndefined (collectArgs -> (Prim nm _, _)) =
+  nm `elem`
+    [ "Clash.Sized.Internal.BitVector.undefined#"
+    , "Clash.Transformations.removedArg"
+    , "Clash.Transformations.undefined"
+    , "Clash.XException.errorX"
+    , "Control.Exception.Base.absentError"
+    , "Control.Exception.Base.irrefutPatError"
+    , "Control.Exception.Base.noMethodBindingError"
+    , "Control.Exception.Base.nonExhaustiveGuardsError"
+    , "Control.Exception.Base.patError"
+    , "Control.Exception.Base.recConError"
+    , "Control.Exception.Base.recSelError"
+    , "Control.Exception.Base.runtimeError"
+    , "Control.Exception.Base.typeError"
+    , "EmptyCase"
+    , "GHC.Err.error"
+    , "GHC.Err.errorWithoutStackTrace"
+    , "GHC.Err.undefined"
+    , "GHC.Natural.underflowError"
+    , "GHC.Real.divZeroError"
+    , "GHC.Real.overflowError"
+    , "GHC.Real.ratioZeroDenominatorError"
+    ]
+isUndefined _ = False
+
