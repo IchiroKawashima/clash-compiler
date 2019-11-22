@@ -28,6 +28,10 @@ package clash-prelude
 package clash-testsuite
   flags: cosim
 
+  -- For some reason the `clash-testsuite` executable fails to run without
+  -- this, as it cannot find the related library...
+  tests: True
+
 package clash-lib
   flags: debug
 
