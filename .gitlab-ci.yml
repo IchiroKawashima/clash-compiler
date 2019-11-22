@@ -144,10 +144,10 @@ snap-bindist:
     - tar cJf $ROOT/usr_nix.tar.xz /usr/nix
 
   # Run every night, when explicitly triggered, or when tagged (release)
-  only:
-    - schedules
-    - triggers
-    - tags
+  # only:
+  #   - schedules
+  #   - triggers
+  #   - tags
 
 # Use binary distribution built in `snap-bindist` to build a snap pacakge.
 .snap:
