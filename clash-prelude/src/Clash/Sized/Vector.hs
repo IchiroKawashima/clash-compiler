@@ -107,8 +107,8 @@ where
 
 import Control.DeepSeq            (NFData (..))
 import qualified Control.Lens     as Lens hiding (pattern (:>), pattern (:<))
-import Data.Constraint            ((:-)(..), Dict (..))
-import Data.Constraint.Nat        (leZero)
+import Data.Constraint            ((:-)(..), Dict (..), (***))
+import Data.Constraint.Nat        (leZero, leTrans)
 import Data.Data
   (Data (..), Constr, DataType, Fixity (..), Typeable, mkConstr, mkDataType)
 import Data.Default.Class         (Default (..))
@@ -2058,7 +2058,7 @@ dfold _ f z xs = go (snatProxy (asNatProxy xs)) xs
 dtfold :: forall p k a . KnownNat k
        => Proxy (p :: TyFun Nat Type -> Type) -- ^ The /motive/
        -> (a -> (p @@ 0)) -- ^ Function to apply to every element
-       -> (forall l . SNat l -> (p @@ l) -> (p @@ l) -> (p @@ (l + 1)))
+       -> (forall l . (KnownNat l, l <= k - 1) => SNat l -> (p @@ l) -> (p @@ l) -> (p @@ (l + 1)))
        -- ^ Function to combine results.
        --
        -- __NB__: The @SNat l@ indicates the depth/height of the node in the
@@ -2071,13 +2071,14 @@ dtfold :: forall p k a . KnownNat k
        -> (p @@ k)
 dtfold _ f g = go (SNat :: SNat k)
   where
-    go :: forall n . SNat n -> Vec (2^n) a -> (p @@ n)
+    go :: forall n . (KnownNat n, n <= k) => SNat n -> Vec (2^n) a -> (p @@ n)
     go _  (x `Cons` Nil) = f x
-    go sn xs@(Cons _ (Cons _ _)) =
-      let sn' :: SNat (n - 1)
-          sn'       = sn `subSNat` d1
-          (xsL,xsR) = splitAt (pow2SNat sn') xs
-      in  g sn' (go sn' xsL) (go sn' xsR)
+    go sn xs@(Cons _ (Cons _ _)) = case leTrans @(n - 1) @n @(k - 1) *** leTrans @(n - 1) @n @k of
+        Sub Dict ->
+            let sn' :: SNat (n - 1)
+                sn'       = sn `subSNat` d1
+                (xsL,xsR) = splitAt (pow2SNat sn') xs
+            in  g sn' (go sn' xsL) (go sn' xsR)
 {-# NOINLINE dtfold #-}
 
 -- | To be used as the motive /p/ for 'dfold', when the /f/ in \"'dfold' @p f@\"
